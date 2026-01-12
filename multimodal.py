@@ -1,4 +1,4 @@
-import requests
+import requests, math
 from typing import Dict, Any, List, Tuple
 
 class ORSClient:
@@ -6,38 +6,82 @@ class ORSClient:
         self.api_key = api_key
         self.url = "https://api.openrouteservice.org/v2/directions/driving-car"
 
-    def fetch_routes(self, origin: Tuple[float, float], dest: Tuple[float, float], alt_count: int = 3, avoid_tolls: bool = False) -> Dict[str, Any]:
-        if not self.api_key:
-            return {"error": "Missing ORS_API_KEY in Streamlit secrets."}
-        headers = {"Authorization": self.api_key, "Content-Type": "application/json"}
+    @staticmethod
+    def _haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        # (lat, lon) in degrees
+        R = 6371.0088
+        lat1, lon1 = map(math.radians, a)
+        lat2, lon2 = map(math.radians, b)
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+        return 2*R*math.asin(math.sqrt(h))
+
+    def _build_body(self, origin, dest, alt_count, avoid_tolls, use_alternatives=True):
         body = {
             "coordinates": [[origin[1], origin[0]], [dest[1], dest[0]]],
             "instructions": True,
             "extra_info": ["waytype", "tollways"],
-            "preference": "recommended",
-            "alternative_routes": {
+            "preference": "fastest" if not use_alternatives else "recommended",
+        }
+        if use_alternatives:
+            body["alternative_routes"] = {
                 "share_factor": 0.6,
                 "target_count": max(1, alt_count),
                 "weight_factor": 1.4
             }
-        }
         if avoid_tolls:
             body["options"] = {"avoid_features": ["tollways"]}
+        return body
+
+    def fetch_routes(self, origin: Tuple[float, float], dest: Tuple[float, float], alt_count: int = 3, avoid_tolls: bool = False) -> Dict[str, Any]:
+        if not self.api_key:
+            return {"error": "Missing ORS_API_KEY in Streamlit secrets."}
+        headers = {"Authorization": self.api_key, "Content-Type": "application/json"}
+
+        # If crow-fly distance > 150km, avoid alternative_routes (server constraint)
+        crow_km = self._haversine_km(origin, dest)
+        use_alternatives = crow_km <= 150.0
+        body = self._build_body(origin, dest, alt_count, avoid_tolls, use_alternatives=use_alternatives)
         try:
             resp = requests.post(self.url, json=body, headers=headers, timeout=60)
         except requests.RequestException as e:
             return {"error": f"Network error contacting ORS: {e}"}
-        if not resp.ok:
-            # Return ORS error message if present
+
+        if resp.ok:
             try:
-                msg = resp.json().get('error', {}).get('message') or resp.text
+                return resp.json()
+            except Exception:
+                return {"error": "Failed to parse ORS JSON response."}
+
+        # If 400 due to limit, retry without alternatives
+        if resp.status_code == 400 and use_alternatives:
+            try:
+                msg = resp.json().get('error', {}).get('message')
             except Exception:
                 msg = resp.text
-            return {"error": f"ORS HTTP {resp.status_code}: {msg}"}
+            if msg and 'must not be greater than 150000.0' in msg:
+                # Retry single fastest route
+                body2 = self._build_body(origin, dest, alt_count=1, avoid_tolls=avoid_tolls, use_alternatives=False)
+                try:
+                    resp2 = requests.post(self.url, json=body2, headers=headers, timeout=60)
+                    if resp2.ok:
+                        return resp2.json()
+                    else:
+                        try:
+                            msg2 = resp2.json().get('error', {}).get('message') or resp2.text
+                        except Exception:
+                            msg2 = resp2.text
+                        return {"error": f"ORS HTTP {resp2.status_code} on retry: {msg2}"}
+                except requests.RequestException as e:
+                    return {"error": f"Network error on retry: {e}"}
+
+        # Other error
         try:
-            return resp.json()
+            msg = resp.json().get('error', {}).get('message') or resp.text
         except Exception:
-            return {"error": "Failed to parse ORS JSON response."}
+            msg = resp.text
+        return {"error": f"ORS HTTP {resp.status_code}: {msg}"}
 
     @staticmethod
     def parse_routes(resp: Dict[str, Any]) -> List[Dict[str, Any]]:
