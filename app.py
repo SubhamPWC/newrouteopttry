@@ -28,6 +28,7 @@ STATIC_POINTS = {
 
 st.set_page_config(page_title="India Route Optimizer", layout="wide")
 st.title("India Route Optimizer (Road) — Emissions, Cost, Time, Distance")
+st.caption("ORS Directions with automatic fallback for long distances (no Google Maps).")
 
 ORS_API_KEY = st.secrets.get("ORS_API_KEY", "")
 client = ORSClient(ORS_API_KEY)
@@ -55,7 +56,7 @@ with right:
     co2_g_km = st.number_input("CO₂ intensity (g/km)", value=float(DEFAULTS["co2_g_per_km"]))
     fuel_economy = st.number_input("Fuel economy (km/litre)", value=float(DEFAULTS["fuel_economy_kmpl"]))
     fuel_price = st.number_input("Fuel price (₹/litre)", value=float(DEFAULTS["fuel_price_inr_per_litre"]))
-    alt_count = st.slider("Number of alternatives", 1, 5, 3)
+    alt_count = st.slider("Number of alternatives (≤150km)", 1, 5, 3)
     avoid_tolls = st.checkbox("Avoid tollways", value=False)
     weights = {
         "distance_km": st.slider("Weight: distance", 0.0, 3.0, 1.0),
@@ -64,13 +65,11 @@ with right:
         "emissions_kg": st.slider("Weight: emissions", 0.0, 3.0, 1.0),
     }
 
-# Validation messages
 if not ORS_API_KEY:
     st.warning("Set ORS_API_KEY in Streamlit Cloud → App settings → Secrets.")
 
 if st.button("Find & Optimize Routes"):
     try:
-        # Basic validation
         if origin == dest:
             st.error("Origin and destination are identical. Please choose different points.")
             st.stop()
@@ -78,12 +77,13 @@ if st.button("Find & Optimize Routes"):
         resp = client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
         if isinstance(resp, dict) and resp.get('error'):
             st.error(resp['error'])
+            st.json(resp)
             st.stop()
 
         routes = client.parse_routes(resp)
         if not routes:
             st.warning("No routes parsed from ORS response. Try changing points or check your API quota.")
-            st.json(resp)  # show raw for debugging
+            st.json(resp)
             st.stop()
 
         rows = []
@@ -103,20 +103,18 @@ if st.button("Find & Optimize Routes"):
         df = pd.DataFrame(rows)
 
         scored_df, best_idx = score_routes(df, weights)
-        st.subheader("All route alternatives")
+        st.subheader("All route alternatives / fastest fallback")
         st.dataframe(scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"))
 
-        # Steps for best route
         st.subheader("Turn-by-turn details (street/highway names)")
         selected = int(scored_df.iloc[0]["route_id"]) if best_idx != -1 else 0
         steps_df = pd.DataFrame(routes[selected].get("steps", []))
         st.dataframe(steps_df)
 
-        # Map rendering
         st.subheader("Map — optimized route highlighted")
         draw_routes_map(origin, dest, routes, selected)
 
-        st.info(f"**Optimization tag:** Route {selected} is **recommended** based on weighted criteria.")
+        st.info("If crow-fly distance > 150 km, the app automatically requests a single fastest route due to ORS server limits on alternative routes.")
 
     except Exception as e:
         st.exception(e)
