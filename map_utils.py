@@ -1,9 +1,10 @@
 import folium
 from streamlit_folium import st_folium
 
-COLORS = ["#2a9df4", "#7e03a8", "#3cb371", "#ff7f0e"]  # blue, purple, green, orange
+COLORS = ["#2a9df4", "#7e03a8", "#3cb371", "#ff7f0e"]
 
-# Polyline decoder for OSRM-style polylines (kept for future extensions)
+# Decoder kept for future OSRM support
+
 def _decode_polyline(polyline_str: str):
     coords = []
     index, lat, lng = 0, 0, 0
@@ -48,24 +49,19 @@ def _legend_html():
     )
 
 
-def draw_routes_map(origin, dest, routes, recommended_index: int, title: str = None):
+def draw_routes_map(origin, dest, routes, recommended_index: int):
+    """Draw a Folium map with routes. origin/dest are (lat, lon)."""
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
     m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
 
-    if title:
-        folium.map.Marker([origin[0], origin[1]],
-            icon=folium.DivIcon(html=f"<div style='font-weight:600;font-size:14px'>{title}</div>")
-        ).add_to(m)
-
     folium.Marker(location=[origin[0], origin[1]], popup="From").add_to(m)
     folium.Marker(location=[dest[0], dest[1]], popup="To").add_to(m)
 
-    # Draw alternatives
     for idx, r in enumerate(routes):
         rec = (idx == recommended_index)
         color = "#e31a1c" if rec else COLORS[idx % len(COLORS)]
-        weight = 6 if rec else 3
+        weight = 7 if rec else 4
         geom = r.get("geometry", {})
         coords = []
         if isinstance(geom, str) and geom:
@@ -78,6 +74,5 @@ def draw_routes_map(origin, dest, routes, recommended_index: int, title: str = N
                 tooltip=f"Route {idx}: {r.get('distance_km',0):.1f} km, {r.get('duration_min',0):.1f} min"
             ).add_to(m)
 
-    # Legend
     folium.map.Marker([center_lat, center_lon], icon=folium.DivIcon(html=_legend_html())).add_to(m)
     return st_folium(m, height=520)
