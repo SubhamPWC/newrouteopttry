@@ -8,7 +8,6 @@ class ORSClient:
 
     @staticmethod
     def _haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-        # (lat, lon) in degrees
         R = 6371.0088
         lat1, lon1 = map(math.radians, a)
         lat2, lon2 = map(math.radians, b)
@@ -39,7 +38,6 @@ class ORSClient:
             return {"error": "Missing ORS_API_KEY in Streamlit secrets."}
         headers = {"Authorization": self.api_key, "Content-Type": "application/json"}
 
-        # If crow-fly distance > 150km, avoid alternative_routes (server constraint)
         crow_km = self._haversine_km(origin, dest)
         use_alternatives = crow_km <= 150.0
         body = self._build_body(origin, dest, alt_count, avoid_tolls, use_alternatives=use_alternatives)
@@ -61,7 +59,6 @@ class ORSClient:
             except Exception:
                 msg = resp.text
             if msg and 'must not be greater than 150000.0' in msg:
-                # Retry single fastest route
                 body2 = self._build_body(origin, dest, alt_count=1, avoid_tolls=avoid_tolls, use_alternatives=False)
                 try:
                     resp2 = requests.post(self.url, json=body2, headers=headers, timeout=60)
@@ -76,7 +73,6 @@ class ORSClient:
                 except requests.RequestException as e:
                     return {"error": f"Network error on retry: {e}"}
 
-        # Other error
         try:
             msg = resp.json().get('error', {}).get('message') or resp.text
         except Exception:
