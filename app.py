@@ -5,7 +5,6 @@ from optimization import compute_cost_and_emissions, score_routes
 from map_utils import draw_routes_map
 from multimodal import ORSClient
 
-# Defaults for India context
 DEFAULTS = {
     "fuel_price_inr_per_litre": 110.0,
     "fuel_economy_kmpl": 15.0,
@@ -29,14 +28,10 @@ STATIC_POINTS = {
 
 st.set_page_config(page_title="India Route Optimizer", layout="wide")
 st.title("India Route Optimizer (Road) — Emissions, Cost, Time, Distance")
-st.caption("OpenStreetMap-based routing via ORS (no Google Maps).")
 
-# ORS API key
 ORS_API_KEY = st.secrets.get("ORS_API_KEY", "")
-if not ORS_API_KEY:
-    st.warning("Add ORS_API_KEY in Streamlit Cloud → App settings → Secrets.")
+client = ORSClient(ORS_API_KEY)
 
-# Inputs
 left, right = st.columns(2)
 with left:
     use_static = st.checkbox("Use static India points", value=True)
@@ -69,46 +64,59 @@ with right:
         "emissions_kg": st.slider("Weight: emissions", 0.0, 3.0, 1.0),
     }
 
+# Validation messages
+if not ORS_API_KEY:
+    st.warning("Set ORS_API_KEY in Streamlit Cloud → App settings → Secrets.")
+
 if st.button("Find & Optimize Routes"):
     try:
-        client = ORSClient(ORS_API_KEY)
-        resp = client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
-        routes = client.parse_routes(resp)
-        if not routes:
-            st.warning("No routes returned.")
+        # Basic validation
+        if origin == dest:
+            st.error("Origin and destination are identical. Please choose different points.")
             st.stop()
 
-        # Compose metrics
+        resp = client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
+        if isinstance(resp, dict) and resp.get('error'):
+            st.error(resp['error'])
+            st.stop()
+
+        routes = client.parse_routes(resp)
+        if not routes:
+            st.warning("No routes parsed from ORS response. Try changing points or check your API quota.")
+            st.json(resp)  # show raw for debugging
+            st.stop()
+
         rows = []
         for i, r in enumerate(routes):
-            dist = r["distance_km"]
-            duration = r["duration_min"]
+            dist = r.get("distance_km", 0.0)
+            duration = r.get("duration_min", 0.0)
             cost_inr, emissions_kg = compute_cost_and_emissions(dist, fuel_economy, fuel_price, co2_g_km)
             rows.append({
                 "route_id": i,
-                "provider": r["provider"],
+                "provider": r.get("provider", "ORS"),
                 "distance_km": round(dist, 2),
                 "duration_min": round(duration, 2),
                 "cost_inr": cost_inr,
                 "emissions_kg": emissions_kg,
-                "num_steps": len(r["steps"]),
+                "num_steps": len(r.get("steps", [])),
             })
         df = pd.DataFrame(rows)
 
         scored_df, best_idx = score_routes(df, weights)
-
         st.subheader("All route alternatives")
         st.dataframe(scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"))
 
+        # Steps for best route
         st.subheader("Turn-by-turn details (street/highway names)")
-        selected = scored_df.iloc[0]["route_id"]
-        best_route = routes[selected]
-        steps_df = pd.DataFrame(best_route["steps"])
+        selected = int(scored_df.iloc[0]["route_id"]) if best_idx != -1 else 0
+        steps_df = pd.DataFrame(routes[selected].get("steps", []))
         st.dataframe(steps_df)
 
+        # Map rendering
         st.subheader("Map — optimized route highlighted")
         draw_routes_map(origin, dest, routes, selected)
 
-        st.info(f"**Optimization tag:** Route {selected} is **recommended** based on weighted criteria (distance/time/cost/emissions). Adjust the weights to change the selection.")
+        st.info(f"**Optimization tag:** Route {selected} is **recommended** based on weighted criteria.")
+
     except Exception as e:
         st.exception(e)
