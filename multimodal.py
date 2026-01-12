@@ -22,7 +22,6 @@ class ORSClient:
             "instructions": True,
             "extra_info": ["waytype", "tollways"],
             "preference": "fastest" if not use_alternatives else "recommended",
-            "locale": "en"
         }
         if use_alternatives:
             body["alternative_routes"] = {
@@ -108,7 +107,7 @@ class ORSClient:
                     "provider": "ORS"
                 })
 
-        # Some ORS deployments can return a non-GeoJSON "routes" list
+        # Non-GeoJSON variant
         elif 'routes' in resp:
             for r in resp.get('routes', []):
                 summary = r.get('summary', {})
