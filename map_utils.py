@@ -1,7 +1,6 @@
 import folium
 from streamlit_folium import st_folium
 
-# Polyline decoder (OSRM/Google style). ORS returns GeoJSON, but we keep decoder for future.
 def _decode_polyline(polyline_str: str):
     coords = []
     index, lat, lng = 0, 0, 0
@@ -32,9 +31,6 @@ def _decode_polyline(polyline_str: str):
 
 
 def draw_routes_map(origin, dest, routes, recommended_index: int):
-    """Render folium map. `routes` is a list of dicts with `geometry` from ORS or OSRM.
-    origin/dest are (lat, lon). Recommended route drawn thicker in red.
-    """
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
     m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
