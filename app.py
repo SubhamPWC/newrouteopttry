@@ -23,22 +23,35 @@ STATIC_POINTS = {
         "Hyderabad (Charminar)": (17.3616, 78.4747),
         "Pune (Shivajinagar)": (18.5308, 73.8470),
         "Guwahati (Paltan Bazar)": (26.1754, 91.7450),
+        "Bhubaneswar": (20.2961, 85.8250),
     },
 }
 
-st.set_page_config(page_title="India Route Optimizer", layout="wide")
-st.title("India Route Optimizer (Road) — Emissions, Cost, Time, Distance")
-st.caption("ORS Directions with automatic fallback for long distances (no Google Maps).")
+st.set_page_config(page_title="Road Route Optimization (India)", layout="wide")
+st.title("🚗 Road Route Optimization (India) — Distance · Time · Cost · Emissions")
 
 ORS_API_KEY = st.secrets.get("ORS_API_KEY", "")
 client = ORSClient(ORS_API_KEY)
 
-left, right = st.columns(2)
+# Sidebar options (looks like your screenshot)
+st.sidebar.header("Controls")
+st.sidebar.write("Select points and weights; ORS API key in secrets.")
+
+left, right = st.columns([1.2, 1])
+
 with left:
+    st.subheader("🗺️ Map: Route from origin to destination")
+
+with right:
+    st.subheader("📊 Route Alternatives")
+
+# Inputs row
+colA, colB, colC = st.columns(3)
+with colA:
     use_static = st.checkbox("Use static India points", value=True)
     if use_static:
-        orig_label = st.selectbox("From", list(STATIC_POINTS["From"].keys()))
-        dest_label = st.selectbox("To", list(STATIC_POINTS["To"].keys()))
+        orig_label = st.selectbox("From", list(STATIC_POINTS["From"].keys()), index=0)
+        dest_label = st.selectbox("To", list(STATIC_POINTS["To"].keys()), index=4)
         origin = STATIC_POINTS["From"][orig_label]
         dest = STATIC_POINTS["To"][dest_label]
     else:
@@ -47,16 +60,15 @@ with left:
             st.number_input("From Lon", value=88.3667, format="%.6f")
         )
         dest = (
-            st.number_input("To Lat", value=13.0827, format="%.6f"),
-            st.number_input("To Lon", value=80.2707, format="%.6f")
+            st.number_input("To Lat", value=20.2961, format="%.6f"),
+            st.number_input("To Lon", value=85.8250, format="%.6f")
         )
-
-with right:
-    st.subheader("Vehicle & Optimization Settings")
+with colB:
     co2_g_km = st.number_input("CO₂ intensity (g/km)", value=float(DEFAULTS["co2_g_per_km"]))
     fuel_economy = st.number_input("Fuel economy (km/litre)", value=float(DEFAULTS["fuel_economy_kmpl"]))
     fuel_price = st.number_input("Fuel price (₹/litre)", value=float(DEFAULTS["fuel_price_inr_per_litre"]))
-    alt_count = st.slider("Number of alternatives (≤150km)", 1, 5, 3)
+with colC:
+    alt_count = st.slider("Alternatives (≤150 km)", 1, 5, 3)
     avoid_tolls = st.checkbox("Avoid tollways", value=False)
     weights = {
         "distance_km": st.slider("Weight: distance", 0.0, 3.0, 1.0),
@@ -68,7 +80,7 @@ with right:
 if not ORS_API_KEY:
     st.warning("Set ORS_API_KEY in Streamlit Cloud → App settings → Secrets.")
 
-if st.button("Find & Optimize Routes"):
+if st.button("🔎 Find & Optimize Routes"):
     try:
         if origin == dest:
             st.error("Origin and destination are identical. Please choose different points.")
@@ -77,13 +89,11 @@ if st.button("Find & Optimize Routes"):
         resp = client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
         if isinstance(resp, dict) and resp.get('error'):
             st.error(resp['error'])
-            st.json(resp)
             st.stop()
 
         routes = client.parse_routes(resp)
         if not routes:
             st.warning("No routes parsed from ORS response. Try changing points or check your API quota.")
-            st.json(resp)
             st.stop()
 
         rows = []
@@ -103,18 +113,24 @@ if st.button("Find & Optimize Routes"):
         df = pd.DataFrame(rows)
 
         scored_df, best_idx = score_routes(df, weights)
-        st.subheader("All route alternatives / fastest fallback")
-        st.dataframe(scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"))
 
-        st.subheader("Turn-by-turn details (street/highway names)")
+        # Map on the left, table on the right
+        with left:
+            draw_routes_map(origin, dest, routes, int(scored_df.iloc[0]["route_id"]),
+                            title=f"Map: {list(STATIC_POINTS['From'].keys())[0]} → {list(STATIC_POINTS['To'].keys())[0]}")
+        with right:
+            st.dataframe(scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"), use_container_width=True)
+
+        st.subheader("✅ Recommended Route Details")
         selected = int(scored_df.iloc[0]["route_id"]) if best_idx != -1 else 0
         steps_df = pd.DataFrame(routes[selected].get("steps", []))
-        st.dataframe(steps_df)
+        # Show road names prominently
+        if not steps_df.empty:
+            steps_df = steps_df[["name", "instruction", "distance_m", "duration_s"]]
+            steps_df.rename(columns={"name": "Road / Street", "instruction": "Instruction",
+                                     "distance_m": "Segment (m)", "duration_s": "Segment (s)"}, inplace=True)
+        st.dataframe(steps_df, use_container_width=True)
 
-        st.subheader("Map — optimized route highlighted")
-        draw_routes_map(origin, dest, routes, selected)
-
-        st.info("If crow-fly distance > 150 km, the app automatically requests a single fastest route due to ORS server limits on alternative routes.")
-
+        st.success("Routes plotted and optimized. Adjust weights to change the recommendation.")
     except Exception as e:
         st.exception(e)
