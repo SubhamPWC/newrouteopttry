@@ -22,6 +22,7 @@ class ORSClient:
             "instructions": True,
             "extra_info": ["waytype", "tollways"],
             "preference": "fastest" if not use_alternatives else "recommended",
+            "locale": "en"
         }
         if use_alternatives:
             body["alternative_routes"] = {
@@ -84,23 +85,53 @@ class ORSClient:
         if not isinstance(resp, dict) or resp.get('error'):
             return []
         routes = []
-        for feat in resp.get("features", []):
-            props = feat.get("properties", {})
-            segs = props.get("segments", [])
-            steps_all = []
-            for seg in segs:
-                for s in seg.get("steps", []):
-                    steps_all.append({
-                        "instruction": s.get("instruction"),
-                        "name": s.get("name"),
-                        "distance_m": s.get("distance", 0),
-                        "duration_s": s.get("duration", 0),
-                    })
-            routes.append({
-                "distance_km": props.get("summary", {}).get("distance", 0)/1000.0,
-                "duration_min": props.get("summary", {}).get("duration", 0)/60.0,
-                "geometry": feat.get("geometry", {}),
-                "steps": steps_all,
-                "provider": "ORS"
-            })
+
+        # ORS default GeoJSON FeatureCollection
+        if 'features' in resp:
+            for feat in resp.get("features", []):
+                props = feat.get("properties", {})
+                segs = props.get("segments", [])
+                steps_all = []
+                for seg in segs:
+                    for s in seg.get("steps", []):
+                        steps_all.append({
+                            "instruction": s.get("instruction"),
+                            "name": s.get("name") or s.get("instruction"),
+                            "distance_m": s.get("distance", 0),
+                            "duration_s": s.get("duration", 0),
+                        })
+                routes.append({
+                    "distance_km": props.get("summary", {}).get("distance", 0)/1000.0,
+                    "duration_min": props.get("summary", {}).get("duration", 0)/60.0,
+                    "geometry": feat.get("geometry", {}),
+                    "steps": steps_all,
+                    "provider": "ORS"
+                })
+
+        # Some ORS deployments can return a non-GeoJSON "routes" list
+        elif 'routes' in resp:
+            for r in resp.get('routes', []):
+                summary = r.get('summary', {})
+                steps_all = []
+                for s in r.get('segments', []):
+                    for st in s.get('steps', []):
+                        steps_all.append({
+                            "instruction": st.get("instruction"),
+                            "name": st.get("name") or st.get("instruction"),
+                            "distance_m": st.get("distance", 0),
+                            "duration_s": st.get("duration", 0),
+                        })
+                geom = r.get('geometry')
+                if isinstance(geom, dict) and geom.get('type') == 'LineString':
+                    geometry = geom
+                else:
+                    geometry = {"type": "LineString", "coordinates": r.get('coordinates', [])}
+                routes.append({
+                    "distance_km": summary.get("distance", 0)/1000.0,
+                    "duration_min": summary.get("duration", 0)/60.0,
+                    "geometry": geometry,
+                    "steps": steps_all,
+                    "provider": "ORS"
+                })
+
         return routes
