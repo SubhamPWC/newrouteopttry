@@ -71,18 +71,23 @@ run = st.sidebar.button("🔎 Find & Optimize Routes")
 
 left, right = st.columns([1.25, 1])
 
+@st.cache_data(show_spinner=False)
+def _cached_fetch(origin, dest, alt_count, avoid_tolls, api_key):
+    client = ORSClient(api_key)
+    return client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
+
 if run:
     try:
         if origin == dest:
             st.error("Origin and destination are identical. Please choose different points.")
             st.stop()
 
-        client = ORSClient(ORS_API_KEY)
-        resp = client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
+        resp = _cached_fetch(origin, dest, alt_count, avoid_tolls, ORS_API_KEY)
         if isinstance(resp, dict) and resp.get('error'):
             st.error(resp['error'])
             st.stop()
-        routes = client.parse_routes(resp)
+
+        routes = ORSClient.parse_routes(resp)
         if not routes:
             st.warning("No routes parsed from ORS response. Try changing points or check your API quota.")
             st.stop()
