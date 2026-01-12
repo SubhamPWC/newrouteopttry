@@ -3,8 +3,6 @@ from streamlit_folium import st_folium
 
 COLORS = ["#2a9df4", "#7e03a8", "#3cb371", "#ff7f0e"]
 
-# Decoder kept for future OSRM support
-
 def _decode_polyline(polyline_str: str):
     coords = []
     index, lat, lng = 0, 0, 0
