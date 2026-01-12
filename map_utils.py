@@ -50,7 +50,6 @@ def _legend_html():
 
 
 def draw_routes_map(origin, dest, routes, recommended_index: int):
-    """Draw a Folium map with routes. origin/dest are (lat, lon)."""
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
     m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
@@ -68,6 +67,9 @@ def draw_routes_map(origin, dest, routes, recommended_index: int):
             coords = _decode_polyline(geom)
         elif isinstance(geom, dict) and geom.get("type") == "LineString":
             coords = [(lat, lon) for lon, lat in geom.get("coordinates", [])]
+        elif isinstance(geom, dict) and geom.get("type") == "MultiLineString":
+            for ln in geom.get("coordinates", []):
+                coords = [(lat, lon) for lon, lat in ln]
         if coords:
             folium.PolyLine(
                 locations=coords, color=color, weight=weight, opacity=0.9,
