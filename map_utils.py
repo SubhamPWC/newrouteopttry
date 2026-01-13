@@ -1,42 +1,23 @@
 import folium
 from streamlit_folium import st_folium
 
-# Neon palette for high-contrast highlighting
-RECOMMENDED_COLOR = "#00e5ff"   # cyan
-ALT_COLORS = ["#ff1744", "#d500f9", "#69f0ae", "#ff9100", "#2a9df4"]
+# Palette
+RECOMMENDED_COLOR = "#3b82f6"  # bright blue
+ALT_COLORS = ["#ff1744", "#00e5ff", "#d500f9", "#69f0ae", "#ff9100", "#2a9df4"]
 
-# Optional decoder for encoded polylines (not typical for ORS GeoJSON)
-def _decode_polyline(polyline_str: str):
-    coords = []
-    index, lat, lng = 0, 0, 0
-    length = len(polyline_str)
-    while index < length:
-        shift, result = 0, 0
-        while True:
-            b = ord(polyline_str[index]) - 63
-            index += 1
-            result |= (b & 0x1f) << shift
-            shift += 5
-            if b < 0x20:
-                break
-        dlat = ~(result >> 1) if (result & 1) else (result >> 1)
-        lat += dlat
-        shift, result = 0, 0
-        while True:
-            b = ord(polyline_str[index]) - 63
-            index += 1
-            result |= (b & 0x1f) << shift
-            shift += 5
-            if b < 0x20:
-                break
-        dlng = ~(result >> 1) if (result & 1) else (result >> 1)
-        lng += dlng
-        coords.append((lat / 1e5, lng / 1e5))
-    return coords
+
+def _style_function_factory(color: str, weight: int = 6, opacity: float = 0.95):
+    def _style(_):
+        return {
+            'color': color,
+            'weight': weight,
+            'opacity': opacity
+        }
+    return _style
 
 
 def draw_routes_map(origin, dest, routes, recommended_index: int):
-    """Dark map + layered highlight for recommended; vivid alternatives."""
+    """Draw routes using GeoJSON (lets Leaflet handle [lon, lat] properly)."""
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
     m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="CartoDB dark_matter")
@@ -46,32 +27,20 @@ def draw_routes_map(origin, dest, routes, recommended_index: int):
     folium.CircleMarker(location=[dest[0], dest[1]], radius=6, color="#ff9100", fill=True, fill_opacity=0.9, popup="To").add_to(m)
 
     for idx, r in enumerate(routes):
-        geom = r.get("geometry", {})
-        coords = []
-        # ORS GeoJSON LineString uses [lon, lat]; folium expects [lat, lon]
-        if isinstance(geom, dict) and geom.get("type") == "LineString":
-            coords = [(lat, lon) for lon, lat in geom.get("coordinates", [])]
-        elif isinstance(geom, dict) and geom.get("type") == "MultiLineString":
-            for ln in geom.get("coordinates", []):
-                coords.extend([(lat, lon) for lon, lat in ln])
-        elif isinstance(geom, str) and geom:
-            coords = _decode_polyline(geom)
-        if not coords:
+        geom = r.get('geometry')
+        if not isinstance(geom, dict):
             continue
+        rec = (idx == recommended_index)
+        color = RECOMMENDED_COLOR if rec else ALT_COLORS[idx % len(ALT_COLORS)]
+        weight = 8 if rec else 5
+        tooltip = f"{'Recommended' if rec else 'Alternative ' + str(idx)} • {r.get('distance_km',0):.1f} km, {r.get('duration_min',0):.1f} min"
+        gj = folium.GeoJson(
+            data=geom,
+            style_function=_style_function_factory(color, weight=weight, opacity=0.95),
+            name=f"route_{idx}"
+        )
+        gj.add_child(folium.Tooltip(tooltip))
+        gj.add_to(m)
 
-        if idx == recommended_index:
-            # Shadow layer (glow) underneath
-            folium.PolyLine(locations=coords, color="#000000", weight=12, opacity=0.45).add_to(m)
-            # Bright top layer
-            folium.PolyLine(
-                locations=coords, color=RECOMMENDED_COLOR, weight=7, opacity=0.95,
-                tooltip=f"Recommended • {r.get('distance_km',0):.1f} km, {r.get('duration_min',0):.1f} min"
-            ).add_to(m)
-        else:
-            color = ALT_COLORS[idx % len(ALT_COLORS)]
-            folium.PolyLine(
-                locations=coords, color=color, weight=5, opacity=0.90,
-                tooltip=f"Alternative {idx} • {r.get('distance_km',0):.1f} km, {r.get('duration_min',0):.1f} min"
-            ).add_to(m)
-
-    return st_folium(m, height=600)
+    folium.LayerControl().add_to(m)
+    return st_folium(m, height=620)
