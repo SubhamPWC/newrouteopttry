@@ -28,7 +28,7 @@ STATIC_POINTS = {
 }
 
 st.set_page_config(page_title="Road Route Optimization (India)", layout="wide")
-st.title("🚗 Road Route Optimization (India) — Dark Map · All Alternatives · Road Names")
+st.title("🚗 Road Route Optimization (India) — Dark Map · Highlighted Paths · Road Names")
 
 # Sidebar
 st.sidebar.header("Filters & Settings")
@@ -137,7 +137,7 @@ if st.session_state.routes and st.session_state.scored_df is not None:
         st.dataframe(
             st.session_state.scored_df[[
                 "route_id", "distance_km", "duration_min", "cost_inr", "emissions_kg", "roads_summary", "score", "tag"
-            ]].style.highlight_min(subset=["score"], color="#263238"),
+            ]],
             use_container_width=True
         )
 
