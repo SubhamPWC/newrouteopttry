@@ -68,6 +68,7 @@ if not ORS_API_KEY:
     st.sidebar.error("Set ORS_API_KEY in Streamlit Cloud → App settings → Secrets.")
 
 run = st.sidebar.button("🔎 Find & Optimize Routes")
+reset = st.sidebar.button("♻️ Reset Results")
 
 left, right = st.columns([1.25, 1])
 
@@ -80,6 +81,11 @@ def _cached_fetch(origin, dest, alt_count, avoid_tolls, api_key):
 for key in ["routes", "scored_df", "best_idx", "origin", "dest", "message"]:
     if key not in st.session_state:
         st.session_state[key] = None
+
+if reset:
+    for key in ["routes", "scored_df", "best_idx", "origin", "dest", "message"]:
+        st.session_state[key] = None
+    st.success("Results cleared. Pick inputs and click 'Find & Optimize Routes' again.")
 
 if run:
     try:
