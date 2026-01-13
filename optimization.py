@@ -1,7 +1,6 @@
-import numpy as np
 import pandas as pd
 
-# Pure calculators
+# KPI calculators
 
 def compute_cost_and_emissions(distance_km: float, fuel_economy_kmpl: float, fuel_price_inr: float, co2_g_per_km: float):
     litres = max(distance_km, 0.0) / max(fuel_economy_kmpl, 0.0001)
@@ -9,7 +8,7 @@ def compute_cost_and_emissions(distance_km: float, fuel_economy_kmpl: float, fue
     emissions_kg = (co2_g_per_km * max(distance_km, 0.0)) / 1000.0
     return round(cost_inr, 2), round(emissions_kg, 3)
 
-# We set score to 0 for all rows and pick recommended by minimum time
+# Score fixed to 0; recommended by minimum time
 
 def tag_and_zero_score(df: pd.DataFrame):
     if df.empty:
