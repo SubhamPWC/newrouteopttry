@@ -3,6 +3,8 @@ from streamlit_folium import st_folium
 
 COLORS = ["#2a9df4", "#7e03a8", "#3cb371", "#ff7f0e"]
 
+# Decoder kept for future OSRM support (ORS returns GeoJSON LineString)
+
 def _decode_polyline(polyline_str: str):
     coords = []
     index, lat, lng = 0, 0, 0
@@ -48,6 +50,7 @@ def _legend_html():
 
 
 def draw_routes_map(origin, dest, routes, recommended_index: int):
+    """Draw a Folium map with all routes. origin/dest are (lat, lon)."""
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
     m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
