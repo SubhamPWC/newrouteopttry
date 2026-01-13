@@ -52,7 +52,7 @@ class ORSClient:
             except Exception:
                 return {"error": "Failed to parse ORS JSON response."}
 
-        # If 400 due to 100km alt-routes limit, retry fastest
+        # If 400 due to 100km alt-routes limit, retry without alternatives
         if resp.status_code == 400 and use_alternatives:
             try:
                 msg = resp.json().get('error', {}).get('message')
