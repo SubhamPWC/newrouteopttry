@@ -18,7 +18,7 @@ class ORSClient:
 
     def _build_body(self, origin, dest, alt_count, avoid_tolls, use_alternatives=True):
         body = {
-            "coordinates": [[origin[1], origin[0]], [dest[1], dest[0]]],
+            "coordinates": [[origin[1], origin[0]], [dest[1], dest[0]]],  # [lon, lat]
             "instructions": True,
             "extra_info": ["waytype", "tollways"],
             "preference": "recommended" if use_alternatives else "fastest",
@@ -52,7 +52,7 @@ class ORSClient:
             except Exception:
                 return {"error": "Failed to parse ORS JSON response."}
 
-        # If 400 due to 100km alt-routes limit, retry fastest
+        # If 400 due to alt-routes limit, retry without alternatives
         if resp.status_code == 400 and use_alternatives:
             try:
                 msg = resp.json().get('error', {}).get('message')
@@ -85,39 +85,41 @@ class ORSClient:
             return []
         routes = []
 
-        # ORS GeoJSON FeatureCollection
+        def summarize_roads(steps):
+            names = []
+            for s in steps:
+                nm = s.get("name") or s.get("instruction")
+                if nm and nm != "-":
+                    names.append(nm)
+            seen, out = set(), []
+            for nm in names:
+                if nm not in seen:
+                    out.append(nm)
+                    seen.add(nm)
+                if len(out) >= 6:
+                    break
+            return ", ".join(out)
+
+        # ORS default GeoJSON FeatureCollection
         if 'features' in resp:
             for feat in resp.get("features", []):
                 props = feat.get("properties", {})
                 segs = props.get("segments", [])
                 steps_all = []
-                road_names = []
                 for seg in segs:
                     for s in seg.get("steps", []):
-                        nm = s.get("name") or s.get("instruction")
-                        if nm and nm != "-":
-                            road_names.append(nm)
                         steps_all.append({
                             "instruction": s.get("instruction"),
                             "name": s.get("name") or s.get("instruction"),
                             "distance_m": s.get("distance", 0),
                             "duration_s": s.get("duration", 0),
                         })
-                # summarize roads (unique order-preserving, first 6)
-                seen = set()
-                roads_summary = []
-                for nm in road_names:
-                    if nm not in seen:
-                        roads_summary.append(nm)
-                        seen.add(nm)
-                    if len(roads_summary) >= 6:
-                        break
                 routes.append({
                     "distance_km": props.get("summary", {}).get("distance", 0)/1000.0,
                     "duration_min": props.get("summary", {}).get("duration", 0)/60.0,
                     "geometry": feat.get("geometry", {}),
                     "steps": steps_all,
-                    "roads_summary": ", ".join(roads_summary),
+                    "roads_summary": summarize_roads(steps_all),
                     "provider": "ORS"
                 })
 
@@ -126,26 +128,14 @@ class ORSClient:
             for r in resp.get('routes', []):
                 summary = r.get('summary', {})
                 steps_all = []
-                road_names = []
                 for s in r.get('segments', []):
                     for st in s.get('steps', []):
-                        nm = st.get("name") or st.get("instruction")
-                        if nm and nm != "-":
-                            road_names.append(nm)
                         steps_all.append({
                             "instruction": st.get("instruction"),
                             "name": st.get("name") or st.get("instruction"),
                             "distance_m": st.get("distance", 0),
                             "duration_s": st.get("duration", 0),
                         })
-                seen = set()
-                roads_summary = []
-                for nm in road_names:
-                    if nm not in seen:
-                        roads_summary.append(nm)
-                        seen.add(nm)
-                    if len(roads_summary) >= 6:
-                        break
                 geom = r.get('geometry')
                 if isinstance(geom, dict) and geom.get('type') == 'LineString':
                     geometry = geom
@@ -156,7 +146,7 @@ class ORSClient:
                     "duration_min": summary.get("duration", 0)/60.0,
                     "geometry": geometry,
                     "steps": steps_all,
-                    "roads_summary": ", ".join(roads_summary),
+                    "roads_summary": summarize_roads(steps_all),
                     "provider": "ORS"
                 })
 
