@@ -18,7 +18,7 @@ class ORSClient:
 
     def _build_body(self, origin, dest, alt_count, avoid_tolls, use_alternatives=True):
         body = {
-            "coordinates": [[origin[1], origin[0]], [dest[1], dest[0]]],  # [lon, lat]
+            "coordinates": [[origin[1], origin[0]], [dest[1], dest[0]]],
             "instructions": True,
             "extra_info": ["waytype", "tollways"],
             "preference": "recommended" if use_alternatives else "fastest",
@@ -39,7 +39,7 @@ class ORSClient:
         headers = {"Authorization": self.api_key, "Content-Type": "application/json"}
 
         crow_km = self._haversine_km(origin, dest)
-        use_alternatives = crow_km <= 100.0  # alternatives only if ≤100 km
+        use_alternatives = crow_km <= 100.0
         body = self._build_body(origin, dest, alt_count, avoid_tolls, use_alternatives=use_alternatives)
         try:
             resp = requests.post(self.url, json=body, headers=headers, timeout=60)
@@ -52,7 +52,7 @@ class ORSClient:
             except Exception:
                 return {"error": "Failed to parse ORS JSON response."}
 
-        # If 400 due to alt-routes limit, retry without alternatives
+        # If 400 due to 100km limit on alternatives, retry fastest
         if resp.status_code == 400 and use_alternatives:
             try:
                 msg = resp.json().get('error', {}).get('message')
