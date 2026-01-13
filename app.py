@@ -76,59 +76,72 @@ def _cached_fetch(origin, dest, alt_count, avoid_tolls, api_key):
     client = ORSClient(api_key)
     return client.fetch_routes(origin, dest, alt_count=alt_count, avoid_tolls=avoid_tolls)
 
+# Initialize session_state containers
+for key in ["routes", "scored_df", "best_idx", "origin", "dest", "message"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+
 if run:
     try:
         if origin == dest:
-            st.error("Origin and destination are identical. Please choose different points.")
-            st.stop()
+            st.session_state.message = "Origin and destination are identical. Please choose different points."
+        else:
+            resp = _cached_fetch(origin, dest, alt_count, avoid_tolls, ORS_API_KEY)
+            if isinstance(resp, dict) and resp.get('error'):
+                st.session_state.message = resp['error']
+                st.session_state.routes = None
+            else:
+                routes = ORSClient.parse_routes(resp)
+                if not routes:
+                    st.session_state.message = "No routes parsed from ORS response. Try changing points or check your API quota."
+                    st.session_state.routes = None
+                else:
+                    rows = []
+                    for i, r in enumerate(routes):
+                        dist = r.get("distance_km", 0.0)
+                        duration = r.get("duration_min", 0.0)
+                        cost_inr, emissions_kg = compute_cost_and_emissions(dist, fuel_economy, fuel_price, co2_g_km)
+                        rows.append({
+                            "route_id": i,
+                            "provider": r.get("provider", "ORS"),
+                            "distance_km": round(dist, 2),
+                            "duration_min": round(duration, 2),
+                            "cost_inr": cost_inr,
+                            "emissions_kg": emissions_kg,
+                            "num_steps": len(r.get("steps", [])),
+                        })
+                    df = pd.DataFrame(rows)
+                    scored_df, best_idx = score_routes(df, weights)
 
-        resp = _cached_fetch(origin, dest, alt_count, avoid_tolls, ORS_API_KEY)
-        if isinstance(resp, dict) and resp.get('error'):
-            st.error(resp['error'])
-            st.stop()
-
-        routes = ORSClient.parse_routes(resp)
-        if not routes:
-            st.warning("No routes parsed from ORS response. Try changing points or check your API quota.")
-            st.stop()
-
-        # Compute metrics & optimize
-        rows = []
-        for i, r in enumerate(routes):
-            dist = r.get("distance_km", 0.0)
-            duration = r.get("duration_min", 0.0)
-            cost_inr, emissions_kg = compute_cost_and_emissions(dist, fuel_economy, fuel_price, co2_g_km)
-            rows.append({
-                "route_id": i,
-                "provider": r.get("provider", "ORS"),
-                "distance_km": round(dist, 2),
-                "duration_min": round(duration, 2),
-                "cost_inr": cost_inr,
-                "emissions_kg": emissions_kg,
-                "num_steps": len(r.get("steps", [])),
-            })
-        df = pd.DataFrame(rows)
-        scored_df, best_idx = score_routes(df, weights)
-
-        # Map on the left
-        with left:
-            draw_routes_map(origin, dest, routes, int(scored_df.iloc[0]["route_id"]))
-
-        # Alternatives table on the right
-        with right:
-            st.subheader("Route Alternatives")
-            st.dataframe(scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"), use_container_width=True)
-
-        st.subheader("✅ Recommended Route Details")
-        selected = int(scored_df.iloc[0]["route_id"]) if best_idx != -1 else 0
-        steps_df = pd.DataFrame(routes[selected].get("steps", []))
-        if not steps_df.empty:
-            steps_df = steps_df[["name", "instruction", "distance_m", "duration_s"]]
-            steps_df.rename(columns={"name": "Road / Street", "instruction": "Instruction",
-                                     "distance_m": "Segment (m)", "duration_s": "Segment (s)"}, inplace=True)
-        st.dataframe(steps_df, use_container_width=True)
-
-        st.success("Routes plotted and optimized. Adjust weights in the sidebar to change the recommendation.")
-
+                    st.session_state.routes = routes
+                    st.session_state.scored_df = scored_df
+                    st.session_state.best_idx = best_idx
+                    st.session_state.origin = origin
+                    st.session_state.dest = dest
+                    st.session_state.message = None
     except Exception as e:
-        st.exception(e)
+        st.session_state.message = f"Unexpected error: {e}"
+
+# Always display current results if present (persist across reruns)
+if st.session_state.message:
+    st.error(st.session_state.message)
+
+if st.session_state.routes and st.session_state.scored_df is not None:
+    with left:
+        rec_route_id = int(st.session_state.scored_df.iloc[0]["route_id"]) if st.session_state.best_idx != -1 else 0
+        draw_routes_map(st.session_state.origin, st.session_state.dest, st.session_state.routes, rec_route_id)
+
+    with right:
+        st.subheader("Route Alternatives")
+        st.dataframe(st.session_state.scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"), use_container_width=True)
+
+    st.subheader("✅ Recommended Route Details")
+    selected = int(st.session_state.scored_df.iloc[0]["route_id"]) if st.session_state.best_idx != -1 else 0
+    steps_df = pd.DataFrame(st.session_state.routes[selected].get("steps", []))
+    if not steps_df.empty:
+        steps_df = steps_df[["name", "instruction", "distance_m", "duration_s"]]
+        steps_df.rename(columns={"name": "Road / Street", "instruction": "Instruction",
+                                 "distance_m": "Segment (m)", "duration_s": "Segment (s)"}, inplace=True)
+    st.dataframe(steps_df, use_container_width=True)
+
+    st.success("Routes plotted and optimized. Adjust sidebar weights to change the recommendation.")
