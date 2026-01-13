@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-from optimization import compute_cost_and_emissions, score_routes
+from optimization import compute_cost_and_emissions, tag_and_zero_score
 from map_utils import draw_routes_map
 from multimodal import ORSClient
 
@@ -28,7 +28,7 @@ STATIC_POINTS = {
 }
 
 st.set_page_config(page_title="Road Route Optimization (India)", layout="wide")
-st.title("🚗 Road Route Optimization (India) — Distance · Time · Cost · Emissions")
+st.title("🚗 Road Route Optimization (India) — Dark Map · All Alternatives · Road Names")
 
 # Sidebar
 st.sidebar.header("Filters & Settings")
@@ -56,12 +56,6 @@ fuel_price = st.sidebar.number_input("Fuel price (₹/litre)", value=float(DEFAU
 st.sidebar.markdown("---")
 alt_count = st.sidebar.slider("Alternatives (≤100 km)", 1, 5, 3)
 avoid_tolls = st.sidebar.checkbox("Avoid tollways", value=False)
-weights = {
-    "distance_km": st.sidebar.slider("Weight: distance", 0.0, 3.0, 1.0),
-    "duration_min": st.sidebar.slider("Weight: time", 0.0, 3.0, 1.0),
-    "cost_inr": st.sidebar.slider("Weight: cost", 0.0, 3.0, 1.0),
-    "emissions_kg": st.sidebar.slider("Weight: emissions", 0.0, 3.0, 1.0),
-}
 
 ORS_API_KEY = st.secrets.get("ORS_API_KEY", "")
 if not ORS_API_KEY:
@@ -115,9 +109,10 @@ if run:
                             "cost_inr": cost_inr,
                             "emissions_kg": emissions_kg,
                             "num_steps": len(r.get("steps", [])),
+                            "roads_summary": r.get("roads_summary", "")
                         })
                     df = pd.DataFrame(rows)
-                    scored_df, best_idx = score_routes(df, weights)
+                    scored_df, best_idx = tag_and_zero_score(df)
 
                     st.session_state.routes = routes
                     st.session_state.scored_df = scored_df
@@ -138,10 +133,15 @@ if st.session_state.routes and st.session_state.scored_df is not None:
         draw_routes_map(st.session_state.origin, st.session_state.dest, st.session_state.routes, rec_route_id)
 
     with right:
-        st.subheader("Route Alternatives")
-        st.dataframe(st.session_state.scored_df.style.highlight_min(subset=["score"], color="#d1ffd1"), use_container_width=True)
+        st.subheader("Route Alternatives (All)")
+        st.dataframe(
+            st.session_state.scored_df[[
+                "route_id", "distance_km", "duration_min", "cost_inr", "emissions_kg", "roads_summary", "score", "tag"
+            ]].style.highlight_min(subset=["score"], color="#263238"),
+            use_container_width=True
+        )
 
-    st.subheader("✅ Recommended Route Details")
+    st.subheader("✅ Recommended Route — Turn-by-turn (Road Names)")
     selected = int(st.session_state.scored_df.iloc[0]["route_id"]) if st.session_state.best_idx != -1 else 0
     steps_df = pd.DataFrame(st.session_state.routes[selected].get("steps", []))
     if not steps_df.empty:
@@ -150,4 +150,4 @@ if st.session_state.routes and st.session_state.scored_df is not None:
                                  "distance_m": "Segment (m)", "duration_s": "Segment (s)"}, inplace=True)
     st.dataframe(steps_df, use_container_width=True)
 
-    st.success("Routes plotted and optimized. Adjust sidebar weights to change the recommendation.")
+    st.success("Map and tables ready. Use the sidebar to adjust settings and recalculate.")
