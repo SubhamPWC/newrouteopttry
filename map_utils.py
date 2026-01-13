@@ -1,10 +1,13 @@
 import folium
 from streamlit_folium import st_folium
 
-COLORS = ["#2a9df4", "#7e03a8", "#3cb371", "#ff7f0e"]
+# Neon palette for dark basemap
+COLORS = {
+    "recommended": "#ff1744",  # neon red
+    "alt": ["#00e5ff", "#d500f9", "#69f0ae", "#ff9100"]  # cyan, magenta, lime, orange
+}
 
-# Decoder kept for future OSRM support (ORS returns GeoJSON LineString)
-
+# Optional decoder (kept for future OSRM support)
 def _decode_polyline(polyline_str: str):
     coords = []
     index, lat, lng = 0, 0, 0
@@ -38,30 +41,30 @@ def _legend_html():
     return (
         """
         <div style="position: fixed; bottom: 20px; left: 20px; z-index: 9999; 
-                    background: rgba(255,255,255,0.9); padding: 8px 10px; border-radius: 6px; font-size: 12px;">
-            <b>Route Colors</b><br>
-            <span style="color:#e31a1c;">&#9632;</span> Recommended<br>
-            <span style="color:#2a9df4;">&#9632;</span> Alternative 1<br>
-            <span style="color:#7e03a8;">&#9632;</span> Alternative 2<br>
-            <span style="color:#3cb371;">&#9632;</span> Alternative 3
+                    background: rgba(0,0,0,0.6); color:#fff; padding: 8px 10px; border-radius: 6px; font-size: 12px;">
+            <b>Routes</b><br>
+            <span style="color:#ff1744;">&#9632;</span> Recommended<br>
+            <span style="color:#00e5ff;">&#9632;</span> Alternative 1<br>
+            <span style="color:#d500f9;">&#9632;</span> Alternative 2<br>
+            <span style="color:#69f0ae;">&#9632;</span> Alternative 3
         </div>
         """
     )
 
 
 def draw_routes_map(origin, dest, routes, recommended_index: int):
-    """Draw a Folium map with all routes. origin/dest are (lat, lon)."""
     center_lat = (origin[0] + dest[0]) / 2.0
     center_lon = (origin[1] + dest[1]) / 2.0
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="CartoDB dark_matter")
 
-    folium.Marker(location=[origin[0], origin[1]], popup="From").add_to(m)
-    folium.Marker(location=[dest[0], dest[1]], popup="To").add_to(m)
+    # Start/End markers with neon icons
+    folium.CircleMarker(location=[origin[0], origin[1]], radius=6, color="#00e5ff", fill=True, fill_opacity=0.9, popup="From").add_to(m)
+    folium.CircleMarker(location=[dest[0], dest[1]], radius=6, color="#ff9100", fill=True, fill_opacity=0.9, popup="To").add_to(m)
 
     for idx, r in enumerate(routes):
         rec = (idx == recommended_index)
-        color = "#e31a1c" if rec else COLORS[idx % len(COLORS)]
-        weight = 7 if rec else 4
+        color = COLORS["recommended"] if rec else COLORS["alt"][idx % len(COLORS["alt"])]
+        # Simulate "glow" by adding a thicker, semi-transparent black path underneath
         geom = r.get("geometry", {})
         coords = []
         if isinstance(geom, str) and geom:
@@ -72,10 +75,14 @@ def draw_routes_map(origin, dest, routes, recommended_index: int):
             for ln in geom.get("coordinates", []):
                 coords = [(lat, lon) for lon, lat in ln]
         if coords:
+            # Shadow layer
+            folium.PolyLine(locations=coords, color="#000000", weight=10 if rec else 7, opacity=0.35).add_to(m)
+            # Color layer
             folium.PolyLine(
-                locations=coords, color=color, weight=weight, opacity=0.9,
+                locations=coords, color=color, weight=7 if rec else 5, opacity=0.95,
                 tooltip=f"Route {idx}: {r.get('distance_km',0):.1f} km, {r.get('duration_min',0):.1f} min"
             ).add_to(m)
 
+    # Legend
     folium.map.Marker([center_lat, center_lon], icon=folium.DivIcon(html=_legend_html())).add_to(m)
-    return st_folium(m, height=520)
+    return st_folium(m, height=560)
