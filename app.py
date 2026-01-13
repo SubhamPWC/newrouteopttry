@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-from optimization import compute_cost_and_emissions, tag_and_zero_score
+from optimization import compute_cost_and_emissions, score_routes
 from map_utils import draw_routes_map
 from multimodal import ORSClient
 
@@ -56,6 +56,12 @@ fuel_price = st.sidebar.number_input("Fuel price (₹/litre)", value=float(DEFAU
 st.sidebar.markdown("---")
 alt_count = st.sidebar.slider("Alternatives (≤100 km)", 1, 5, 3)
 avoid_tolls = st.sidebar.checkbox("Avoid tollways", value=False)
+weights = {
+    "distance_km": st.sidebar.slider("Weight: distance", 0.0, 3.0, 1.0),
+    "duration_min": st.sidebar.slider("Weight: time", 0.0, 3.0, 1.0),
+    "cost_inr": st.sidebar.slider("Weight: cost", 0.0, 3.0, 1.0),
+    "emissions_kg": st.sidebar.slider("Weight: emissions", 0.0, 3.0, 1.0),
+}
 
 ORS_API_KEY = st.secrets.get("ORS_API_KEY", "")
 if not ORS_API_KEY:
@@ -93,7 +99,7 @@ if run:
             else:
                 routes = ORSClient.parse_routes(resp)
                 if not routes:
-                    st.session_state.message = "No routes parsed from ORS response. Try changing points or check your API quota."
+                    st.session_state.message = "No routes parsed from ORS response. Try shorter trips (≤100 km) for alternatives or check API quota."
                     st.session_state.routes = None
                 else:
                     rows = []
@@ -112,7 +118,7 @@ if run:
                             "roads_summary": r.get("roads_summary", "")
                         })
                     df = pd.DataFrame(rows)
-                    scored_df, best_idx = tag_and_zero_score(df)
+                    scored_df, best_idx = score_routes(df, weights)
 
                     st.session_state.routes = routes
                     st.session_state.scored_df = scored_df
@@ -150,4 +156,4 @@ if st.session_state.routes and st.session_state.scored_df is not None:
                                  "distance_m": "Segment (m)", "duration_s": "Segment (s)"}, inplace=True)
     st.dataframe(steps_df, use_container_width=True)
 
-    st.success("Map and tables ready. Use the sidebar to adjust settings and recalculate.")
+    st.success("Map and tables ready. Adjust weights to change recommendation.")
